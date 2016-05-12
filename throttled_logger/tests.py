@@ -88,7 +88,7 @@ class TracebackCacheKeyTest(SimpleTestCase):
 
     def test_returns_traceback_hash(self):
         cache_key = utils.traceback_cache_key(self.record)
-        self.assertEqual(hashlib.md5('Traceback').hexdigest(), cache_key)
+        self.assertEqual(hashlib.md5('Traceback'.encode('utf-8')).hexdigest(), cache_key)
 
     def test_returns_none_if_no_exception(self):
         self.record.exc_info = None
