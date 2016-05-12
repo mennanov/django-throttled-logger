@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 import hashlib
 import logging
 from collections import deque
@@ -6,21 +8,25 @@ from datetime import datetime, timedelta
 import django
 import mock
 from django.conf import settings
-from django.core import management
-from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-from . import loggers
+from . import utils
 
 default_settings = dict(
     THROTTLED_EMAIL_LOGGER_DELAY=timedelta(minutes=5),
-    THROTTLED_EMAIL_LOGGER_BACKEND=loggers.CountedAdminEmailHandler,
-    THROTTLED_EMAIL_LOGGER_CACHE_KEY=loggers.traceback_cache_key,
+    THROTTLED_EMAIL_LOGGER_BACKEND=utils.CountedAdminEmailHandler,
+    THROTTLED_EMAIL_LOGGER_CACHE_KEY=utils.traceback_cache_key,
     INSTALLED_APPS=['throttled_logger'],
 )
 
 settings.configure(**default_settings)
 django.setup()
+
+# Must be imported only after settings are already configured.
+from django.core import management
+from django.core.cache import cache
+
+from . import handlers
 
 
 class CacheHandlerTest(SimpleTestCase):
@@ -39,28 +45,28 @@ class CacheHandlerTest(SimpleTestCase):
         cache.clear()
 
     def test_saves_log_record_into_cache(self):
-        handler = loggers.CacheHandler()
+        handler = handlers.CacheHandler()
         handler.emit(self.record)
         record, counter = cache.get(settings.THROTTLED_EMAIL_LOGGER_CACHE_KEY(self.record))
         self.assertEqual(record.exc_info[0], self.record.exc_info[0])
         self.assertEqual(1, counter)
 
     def test_populates_cache_records_registry(self):
-        handler = loggers.CacheHandler()
+        handler = handlers.CacheHandler()
         handler.emit(self.record)
         records_registry = cache.get('records_registry')
         cache_key = settings.THROTTLED_EMAIL_LOGGER_CACHE_KEY(self.record)
         self.assertIn(cache_key, {key for _, key in records_registry})
 
     def test_increments_record_cache_counter(self):
-        handler = loggers.CacheHandler()
+        handler = handlers.CacheHandler()
         for _ in range(5):
             handler.emit(self.record)
         record, counter = cache.get(settings.THROTTLED_EMAIL_LOGGER_CACHE_KEY(self.record))
         self.assertEqual(counter, 5)
 
     def test_multiple_emits_of_the_same_record_dont_populate_records_registry_cache(self):
-        handler = loggers.CacheHandler()
+        handler = handlers.CacheHandler()
         for _ in range(5):
             handler.emit(self.record)
         records_registry = cache.get('records_registry')
@@ -68,7 +74,7 @@ class CacheHandlerTest(SimpleTestCase):
 
     @override_settings(THROTTLED_EMAIL_LOGGER_CACHE_KEY=lambda x: None)
     def test_terminates_if_no_cachekey(self):
-        handler = loggers.CacheHandler()
+        handler = handlers.CacheHandler()
         handler.emit(self.record)
         self.assertFalse(cache._cache)
 
@@ -81,12 +87,12 @@ class TracebackCacheKeyTest(SimpleTestCase):
         self.record = logging.makeLogRecord({'exc_info': self.exc_info})
 
     def test_returns_traceback_hash(self):
-        cache_key = loggers.traceback_cache_key(self.record)
+        cache_key = utils.traceback_cache_key(self.record)
         self.assertEqual(hashlib.md5('Traceback').hexdigest(), cache_key)
 
     def test_returns_none_if_no_exception(self):
         self.record.exc_info = None
-        cache_key = loggers.traceback_cache_key(self.record)
+        cache_key = utils.traceback_cache_key(self.record)
         self.assertIsNone(cache_key)
 
 
@@ -96,12 +102,12 @@ class URLCacheKeyTest(SimpleTestCase):
         self.record = logging.makeLogRecord({'args': ('/test/',)})
 
     def test_returns_url(self):
-        cache_key = loggers.url_cache_key(self.record)
+        cache_key = utils.url_cache_key(self.record)
         self.assertEqual('/test/', cache_key)
 
     def test_returns_none_if_no_args(self):
         self.record.args = None
-        cache_key = loggers.url_cache_key(self.record)
+        cache_key = utils.url_cache_key(self.record)
         self.assertIsNone(cache_key)
 
 
@@ -113,12 +119,12 @@ class ExcTypeCacheKeyTest(SimpleTestCase):
         self.record = logging.makeLogRecord({'exc_info': self.exc_info})
 
     def test_returns_exception_type(self):
-        cache_key = loggers.exc_type_cache_key(self.record)
+        cache_key = utils.exc_type_cache_key(self.record)
         self.assertEqual('ValueError', cache_key)
 
     def test_returns_none_if_exception(self):
         self.record.exc_info = None
-        cache_key = loggers.exc_type_cache_key(self.record)
+        cache_key = utils.exc_type_cache_key(self.record)
         self.assertIsNone(cache_key)
 
 
