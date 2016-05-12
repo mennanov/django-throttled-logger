@@ -29,7 +29,7 @@ def traceback_cache_key(record):
     """
     exc_info = record.exc_info
     if exc_info:
-        return hashlib.md5(str(exc_info[2])).hexdigest()
+        return hashlib.md5(str(exc_info[2]).encode('utf-8')).hexdigest()
     return None
 
 
