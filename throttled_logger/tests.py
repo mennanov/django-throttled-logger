@@ -10,7 +10,7 @@ from django.core import management
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-from throttled_logger import loggers
+from . import loggers
 
 default_settings = dict(
     THROTTLED_EMAIL_LOGGER_DELAY=timedelta(minutes=5),
