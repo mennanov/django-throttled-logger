@@ -2,22 +2,6 @@ from __future__ import unicode_literals
 
 import hashlib
 
-from django.utils.log import AdminEmailHandler
-
-
-class CountedAdminEmailHandler(AdminEmailHandler):
-    """Appends error counter to the email subject and body."""
-
-    def __init__(self, count, *args, **kwargs):
-        super(CountedAdminEmailHandler, self).__init__(*args, **kwargs)
-        self.count = count
-
-    def send_mail(self, subject, message, **kwargs):
-        counter_msg = '({count}) error{s}'.format(count=self.count, s='' if self.count == 1 else 's')
-        super(CountedAdminEmailHandler, self).send_mail(
-            '{subject} {msg}'.format(subject=subject, msg=counter_msg),
-            '{msg}\n\n{message}'.format(msg=counter_msg, message=message), **kwargs)
-
 
 def traceback_cache_key(record):
     """Gets a cache key for the given exception info in a LogRecord.

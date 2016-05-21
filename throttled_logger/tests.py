@@ -6,17 +6,18 @@ from collections import deque
 from datetime import datetime, timedelta
 
 import django
-import mock
 from django.conf import settings
+from django.core import mail
 from django.test import SimpleTestCase, override_settings
 
 from . import utils
 
 default_settings = dict(
     THROTTLED_EMAIL_LOGGER_DELAY=timedelta(minutes=5),
-    THROTTLED_EMAIL_LOGGER_BACKEND=utils.CountedAdminEmailHandler,
     THROTTLED_EMAIL_LOGGER_CACHE_KEY=utils.traceback_cache_key,
     INSTALLED_APPS=['throttled_logger'],
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    ADMINS=[('admin', 'admin@example.com')]
 )
 
 settings.configure(**default_settings)
@@ -38,44 +39,35 @@ class CacheHandlerTest(SimpleTestCase):
             {'name': 'logger name', 'level': 'ERROR', 'pathname': '/path/to/file.py', 'msg': 'Error message',
              'exc_info': self.exc_info, 'func': 'func'}
         )
+        self.handler = handlers.CacheHandler()
+        self.handler.record = self.record
 
     def tearDown(self):
         super(CacheHandlerTest, self).tearDown()
         # Make sure cache is fully cleared after each test case.
         cache.clear()
 
-    def test_saves_log_record_into_cache(self):
-        handler = handlers.CacheHandler()
-        handler.emit(self.record)
-        record, counter = cache.get(settings.THROTTLED_EMAIL_LOGGER_CACHE_KEY(self.record))
-        self.assertEqual(record.exc_info[0], self.record.exc_info[0])
-        self.assertEqual(1, counter)
+    def test_send_mail_saves_message_into_cache(self):
+        self.handler.send_mail('subject', 'message')
+        error = cache.get(settings.THROTTLED_EMAIL_LOGGER_CACHE_KEY(self.record))
+        self.assertEqual(('subject', 'message', 1), error)
 
-    def test_populates_cache_records_registry(self):
-        handler = handlers.CacheHandler()
-        handler.emit(self.record)
-        records_registry = cache.get('records_registry')
-        cache_key = settings.THROTTLED_EMAIL_LOGGER_CACHE_KEY(self.record)
-        self.assertIn(cache_key, {key for _, key in records_registry})
-
-    def test_increments_record_cache_counter(self):
-        handler = handlers.CacheHandler()
+    def test_send_mail_increments_error_cache_counter(self):
         for _ in range(5):
-            handler.emit(self.record)
-        record, counter = cache.get(settings.THROTTLED_EMAIL_LOGGER_CACHE_KEY(self.record))
+            self.handler.send_mail('subject', 'message')
+        _, _, counter = cache.get(settings.THROTTLED_EMAIL_LOGGER_CACHE_KEY(self.record))
         self.assertEqual(counter, 5)
 
     def test_multiple_emits_of_the_same_record_dont_populate_records_registry_cache(self):
-        handler = handlers.CacheHandler()
         for _ in range(5):
-            handler.emit(self.record)
-        records_registry = cache.get('records_registry')
-        self.assertEqual(1, len(records_registry))
+            self.handler.send_mail('subject', 'message')
+        errors_registry = cache.get('errors_registry')
+        self.assertEqual(1, len(errors_registry))
 
     @override_settings(THROTTLED_EMAIL_LOGGER_CACHE_KEY=lambda x: None)
-    def test_terminates_if_no_cachekey(self):
-        handler = handlers.CacheHandler()
-        handler.emit(self.record)
+    def test_send_mail_terminates_if_no_cachekey(self):
+        self.handler.send_mail('subject', 'message')
+        # LocMem cache backend is assumed here.
         self.assertFalse(cache._cache)
 
 
@@ -128,62 +120,46 @@ class ExcTypeCacheKeyTest(SimpleTestCase):
         self.assertIsNone(cache_key)
 
 
-class EmitCachedRecords(SimpleTestCase):
+class SendCachedErrors(SimpleTestCase):
     def tearDown(self):
-        super(EmitCachedRecords, self).tearDown()
+        super(SendCachedErrors, self).tearDown()
         # Make sure cache is fully cleared after each test case.
         cache.clear()
 
-    @override_settings(THROTTLED_EMAIL_LOGGER_BACKEND=mock.MagicMock())
-    def test_emits_records(self):
+    def test_send_emails_with_errors(self):
         now = datetime.now()
         delay = settings.THROTTLED_EMAIL_LOGGER_DELAY
-        records_registry = deque([
-            (now - (delay + timedelta(seconds=60)), 'record1'),
-            (now - (delay + timedelta(seconds=30)), 'record2')
+        errors_registry = deque([
+            (now - (delay + timedelta(seconds=60)), 'error1_key'),
+            (now - (delay + timedelta(seconds=30)), 'error2_key')
         ])
-        cache.set('records_registry', records_registry, None)
-        exception1 = ValueError('Error message')
-        exc_info1 = (type(exception1), exception1, 'Traceback')
-        record1 = logging.makeLogRecord(
-            {'name': 'record1', 'level': 'ERROR', 'pathname': '/path/to/file.py', 'msg': 'Error message',
-             'exc_info': exc_info1, 'func': 'func'}
-        )
-        cache.set('record1', (record1, 5))
+        cache.set('errors_registry', errors_registry, None)
+        cache.set('error1_key', ('subject 1', 'message 1', 5))
+        cache.set('error2_key', ('subject 2', 'message 2', 10))
 
-        exception2 = IndexError('Error message')
-        exc_info2 = (type(exception1), exception2, 'Traceback')
-        record2 = logging.makeLogRecord(
-            {'name': 'record2', 'level': 'ERROR', 'pathname': '/path/to/file.py', 'msg': 'Error message',
-             'exc_info': exc_info2, 'func': 'func'}
-        )
-        cache.set('record2', (record2, 10))
+        management.call_command('send_cached_errors')
+        # Ensure that all errors were emitted.
+        self.assertEqual(2, len(mail.outbox))
+        # Ensure that errors are deleted from cache.
+        self.assertIsNone(cache.get('error1_key'))
+        self.assertIsNone(cache.get('error2_key'))
+        # Ensure that errors registry is empty.
+        self.assertEqual(0, len(cache.get('errors_registry')))
 
-        management.call_command('emit_cached_records')
-        # Ensure that all records were emitted.
-        self.assertEqual(2, settings.THROTTLED_EMAIL_LOGGER_BACKEND.call_count)
-
-    @override_settings(THROTTLED_EMAIL_LOGGER_BACKEND=mock.MagicMock())
     def test_emits_only_old_records(self):
         now = datetime.now()
         delay = settings.THROTTLED_EMAIL_LOGGER_DELAY
-        records_registry = deque([
-            (now - (delay + timedelta(seconds=60)), 'record1'),
-            (now - timedelta(seconds=30), 'record2')
+        errors_registry = deque([
+            (now - (delay + timedelta(seconds=60)), 'error1_key'),
+            (now - timedelta(seconds=30), 'error2_key')
         ])
-        cache.set('records_registry', records_registry, None)
-        exception1 = ValueError('Error message')
-        exc_info1 = (type(exception1), exception1, 'Traceback')
-        record1 = logging.makeLogRecord(
-            {'name': 'record1', 'level': 'ERROR', 'msg': 'Error message',
-             'exc_info': exc_info1, 'func': 'func'}
-        )
-        cache.set('record1', (record1, 5))
+        cache.set('errors_registry', errors_registry, None)
+        cache.set('error1_key', ('subject 1', 'message 1', 5))
 
-        management.call_command('emit_cached_records')
+        management.call_command('send_cached_errors')
         # Ensure that only old record was emitted.
-        self.assertEqual(1, settings.THROTTLED_EMAIL_LOGGER_BACKEND.call_count)
+        self.assertEqual(1, len(mail.outbox))
         # Check that records registry is reduced.
-        records_registry = cache.get('records_registry')
-        self.assertEqual(1, len(records_registry))
-        self.assertNotIn('record1', {k for _, k in records_registry})
+        errors_registry = cache.get('errors_registry')
+        self.assertEqual(1, len(errors_registry))
+        self.assertNotIn({'error2_key'}, {k for _, k in errors_registry})
