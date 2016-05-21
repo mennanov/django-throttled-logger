@@ -12,7 +12,7 @@ install:
   - pip install nose codecov
   - pip install -q Django==$DJANGO_VERSION
 
-script: nosetests --with-coverage
+script: nosetests --with-coverage --cover-package=throttled_logger
 
 after_success:
   - codecov
