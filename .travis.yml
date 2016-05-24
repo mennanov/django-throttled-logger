@@ -9,7 +9,7 @@ env:
   - DJANGO_VERSION=1.9.6
 
 install:
-  - pip install nose codecov
+  - pip install nose codecov mock
   - pip install -q Django==$DJANGO_VERSION
 
 script: nosetests --with-coverage --cover-package=throttled_logger

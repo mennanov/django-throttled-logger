@@ -2,10 +2,12 @@ from __future__ import unicode_literals
 
 import hashlib
 import logging
+import sys
 from collections import deque
 from datetime import datetime, timedelta
 
 import django
+import mock
 from django.conf import settings
 from django.core import mail
 from django.test import SimpleTestCase, override_settings
@@ -69,6 +71,15 @@ class CacheHandlerTest(SimpleTestCase):
         self.handler.send_mail('subject', 'message')
         # LocMem cache backend is assumed here.
         self.assertFalse(cache._cache)
+
+    def test_emit_does_not_call_django_send_mail(self):
+        try:
+            raise Exception('test exception')
+        except:
+            record = mock.MagicMock()
+            record.exc_info = sys.exc_info()
+            self.handler.emit(record)
+            self.assertEqual(0, len(mail.outbox), 'Django < 1.8 is not supported.')
 
 
 class TracebackCacheKeyTest(SimpleTestCase):
