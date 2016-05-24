@@ -26,7 +26,7 @@ class CacheHandler(AdminEmailHandler):
         cached_error = cache.get(cache_key)
         if cached_error is None:
             # Create cache for this record: (subject, message, counter).
-            cache.set(cache_key, (subject, message, 1))
+            cache.set(cache_key, (subject, message, 1), None)
             errors_registry = cache.get('errors_registry', deque())
             errors_registry.append((now(), cache_key))
             # Update cache registry.
