@@ -1,6 +1,5 @@
 from __future__ import unicode_literals
 
-import hashlib
 import logging
 import sys
 from collections import deque
@@ -35,14 +34,16 @@ from . import handlers
 class CacheHandlerTest(SimpleTestCase):
     def setUp(self):
         super(CacheHandlerTest, self).setUp()
-        exception = ValueError('Error message')
-        self.exc_info = (type(exception), exception, 'Traceback')
-        self.record = logging.makeLogRecord(
-            {'name': 'logger name', 'level': 'ERROR', 'pathname': '/path/to/file.py', 'msg': 'Error message',
-             'exc_info': self.exc_info, 'func': 'func'}
-        )
-        self.handler = handlers.CacheHandler()
-        self.handler.record = self.record
+        try:
+            raise ValueError('Error message')
+        except ValueError:
+            self.exc_info = sys.exc_info()
+            self.record = logging.makeLogRecord(
+                {'name': 'logger name', 'level': 'ERROR', 'pathname': '/path/to/file.py', 'msg': 'Error message',
+                 'exc_info': self.exc_info, 'func': 'func'}
+            )
+            self.handler = handlers.CacheHandler()
+            self.handler.record = self.record
 
     def tearDown(self):
         super(CacheHandlerTest, self).tearDown()
@@ -85,18 +86,31 @@ class CacheHandlerTest(SimpleTestCase):
 class TracebackCacheKeyTest(SimpleTestCase):
     def setUp(self):
         super(TracebackCacheKeyTest, self).setUp()
-        exception = ValueError('Error message')
-        self.exc_info = [type(exception), exception, 'Traceback']
-        self.record = logging.makeLogRecord({'exc_info': self.exc_info})
+        try:
+            raise ValueError('Error message')
+        except ValueError:
+            self.exc_info = sys.exc_info()
+            self.record = logging.makeLogRecord({'exc_info': self.exc_info})
 
-    def test_returns_traceback_hash(self):
-        cache_key = utils.traceback_cache_key(self.record)
-        self.assertEqual(hashlib.md5('Traceback'.encode('utf-8')).hexdigest(), cache_key)
+    def test_returns_same_hash_for_same_traceback(self):
+        # Check that hashing function is stable.
+        cache_key1 = utils.traceback_cache_key(self.record)
+        cache_key2 = utils.traceback_cache_key(self.record)
+        self.assertEqual(cache_key1, cache_key2)
 
     def test_returns_none_if_no_exception(self):
         self.record.exc_info = None
         cache_key = utils.traceback_cache_key(self.record)
         self.assertIsNone(cache_key)
+
+    def test_returns_different_keys_for_different_tracebacks(self):
+        value_error_cache_key = utils.traceback_cache_key(self.record)
+        try:
+            raise LookupError('test')
+        except LookupError:
+            self.record.exc_info = sys.exc_info()
+            lookup_error_cache_key = utils.traceback_cache_key(self.record)
+            self.assertNotEqual(value_error_cache_key, lookup_error_cache_key)
 
 
 class URLCacheKeyTest(SimpleTestCase):

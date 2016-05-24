@@ -13,7 +13,7 @@ class Command(BaseCommand):
             for created_at, error_cache_key in errors_registry:
                 error = cache.get(error_cache_key)
                 if not error:
-                    self.stderr.write('Cache entry for the key "%s" was not found in cache', error_cache_key)
+                    self.stderr.write('Cache entry for the key "{}" was not found in cache'.format(error_cache_key))
                     continue
 
                 subject, message, count = error
