@@ -25,7 +25,11 @@ class Command(BaseCommand):
 
         sent = 0
         for cache_key in errors_to_emit:
-            subject, message, count = cache.get(cache_key)
+            cached_value = cache.get(cache_key)
+            if cached_value is None:
+                self.stderr.write('Cache entry for the key "{}" was not found in cache'.format(cache_key))
+                continue
+            subject, message, count = cached_value
             counter_msg = '({count} error{s})'.format(count=count, s='' if count == 1 else 's')
             mail.mail_admins('{subject} {msg}'.format(subject=subject, msg=counter_msg),
                              '{msg}\n\n{message}'.format(msg=counter_msg, message=message))

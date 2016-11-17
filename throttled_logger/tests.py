@@ -156,7 +156,8 @@ class SendCachedErrors(SimpleTestCase):
         delay = settings.THROTTLED_EMAIL_LOGGER_DELAY
         errors_registry = deque([
             (now - (delay + timedelta(seconds=60)), 'error1_key'),
-            (now - (delay + timedelta(seconds=30)), 'error2_key')
+            (now - (delay + timedelta(seconds=30)), 'error2_key'),
+            (now - (delay + timedelta(seconds=10)), 'DNE'),
         ])
         cache.set('errors_registry', errors_registry, None)
         cache.set('error1_key', ('subject 1', 'message 1', 5))
